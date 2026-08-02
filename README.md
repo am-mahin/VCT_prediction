@@ -1,6 +1,6 @@
 # VCT 2026 Champs Prediction Toolkit
 
-A classical-statistics toolkit for predicting VALORANT Champions Tour 2026 match outcomes — map picks, bans, and win probabilities — built entirely on historical match data scraped from [vlr.gg](https://vlr.gg). No machine learning; every prediction is derived from interpretable statistics (frequency tables, win rates, round differentials, and the log5 formula).
+A classical-statistics toolkit for predicting VALORANT Champions Tour 2026 match outcomes — map picks, bans, and win probabilities — built entirely on historical match data collected from [vlr.gg](https://vlr.gg). No machine learning; every prediction is derived from interpretable statistics (frequency tables, win rates, round differentials, and the log5 formula) (for now).
 
 ## Overview
 
@@ -125,11 +125,6 @@ All predictions use classical statistics — no ML models:
 
 ## Roadmap / Ideas
 
-- Normalize team name variants during merge
-- Confidence intervals around win probability based on sample size
-- Round-level (not just map-level) statistical modeling
 - Bracket-level tournament simulation for full Champs 2026
 
-## License
 
-Add your preferred license here (e.g. MIT).
