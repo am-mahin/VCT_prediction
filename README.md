@@ -17,7 +17,8 @@ This project merges VCT 2026 match data across all four regions (**Americas**, *
 ├── merge_vct_data.ipynb     # Merges all regional/event .xlsx files into one dataset
 ├── vct_analysis.ipynb       # Reusable toolkit: modular functions + analyze_matchup() wrapper
 ├── vct_analysis.py          # Same toolkit as an importable Python module
-└── data/                    # (not included) raw .xlsx match files, one per region/event
+├── Individual Data          # raw .xlsx match files, one per region/event
+└── VCT2026.xlsx             # merged data for all 2026 events used for prediction
 ```
 
 ## Data Source & Schema
