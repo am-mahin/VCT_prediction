@@ -303,13 +303,22 @@ def plot_matchup(veto_a, veto_b, mwr_a, mwr_b, team_a, team_b, figsize=(14, 10))
 # 8. ONE-CALL CONVENIENCE WRAPPER
 # =======================================================================
 def analyze_matchup(df: pd.DataFrame, team_a_input: str, team_b_input: str,
-                     team_a_vetoes_first: bool = True, plot: bool = True) -> dict:
+                     team_a_vetoes_first: bool = True, plot: bool = True,
+                     patch=None, match_format: str = "bo3") -> dict:
     """Runs the full analysis for two teams: veto tendencies, map win rates
     with round diff, overall win rate, head-to-head, win probability, and
-    a simulated veto sequence (using the FULL historical map pool -- for a
-    patch-specific pool, call get_map_pool_for_patch() and simulate_veto()
-    directly instead; see Sections 9-10 below). Prints a readable report
-    and returns everything as a dict for further use.
+    a simulated veto sequence. Prints a readable report and returns
+    everything as a dict for further use.
+
+    Args:
+        patch: optional. If given, the veto simulation uses the map pool
+            for that specific patch (via get_map_pool() -- checks custom-
+            registered patches first, then falls back to deriving the
+            pool from historical data). If omitted (default), the FULL
+            historical map pool across all patches is used instead, which
+            may not divide evenly into a clean veto (see '⚠ UNRESOLVED').
+        match_format: "bo3" (default) or "bo5" -- controls the veto order
+            used in the simulation.
     """
     team_a = resolve_team_name(team_a_input, df)
     team_b = resolve_team_name(team_b_input, df)
@@ -341,13 +350,20 @@ def analyze_matchup(df: pd.DataFrame, team_a_input: str, team_b_input: str,
     print(f"Win probability -> {team_a}: {prob['win_prob_a']:.1%}  |  "
           f"{team_b}: {prob['win_prob_b']:.1%}")
 
-    map_pool = get_full_map_pool(df)
-    if team_a_vetoes_first:
-        veto_sequence = simulate_veto(veto_a, veto_b, team_a, team_b, map_pool)
+    if patch is not None:
+        map_pool = get_map_pool(df, patch)
+        pool_label = f"patch '{patch}'"
     else:
-        veto_sequence = simulate_veto(veto_b, veto_a, team_b, team_a, map_pool)
+        map_pool = get_full_map_pool(df)
+        pool_label = "full historical data (all patches)"
+    print(f"\nMap pool source: {pool_label} ({len(map_pool)} maps): {sorted(map_pool)}")
 
-    print(f"\n--- Simulated veto sequence ({'first' if team_a_vetoes_first else 'second'} "
+    if team_a_vetoes_first:
+        veto_sequence = simulate_veto(veto_a, veto_b, team_a, team_b, map_pool, match_format=match_format)
+    else:
+        veto_sequence = simulate_veto(veto_b, veto_a, team_b, team_a, map_pool, match_format=match_format)
+
+    print(f"\n--- Simulated veto sequence ({match_format.upper()}, {'first' if team_a_vetoes_first else 'second'} "
           f"veto: {team_a if team_a_vetoes_first else team_b}) ---")
     for step in veto_sequence:
         print(f"  {step['step']:<20} -> {step['map']}")
@@ -362,6 +378,8 @@ def analyze_matchup(df: pd.DataFrame, team_a_input: str, team_b_input: str,
         "map_win_rates_a": mwr_a, "map_win_rates_b": mwr_b,
         "win_probability": prob,
         "veto_sequence": veto_sequence,
+        "patch": patch,
+        "match_format": match_format,
     }
 
 
@@ -393,27 +411,102 @@ def get_map_pool_for_patch(df: pd.DataFrame, patch) -> set:
     return maps
 
 
+# ---------------------------------------------------------------------
+# Custom/manual patch registry -- for patches NOT YET in the historical
+# data (e.g. an upcoming Champs 2026 patch whose map pool was announced
+# ahead of time, before any matches have been played on it).
+# ---------------------------------------------------------------------
+CUSTOM_PATCHES = {}  # patch_name (str) -> set of map names
+
+
+def add_custom_patch(patch_name: str, map_pool, overwrite: bool = False,
+                      df: pd.DataFrame = None) -> None:
+    """Manually registers a map pool for a patch that isn't in the
+    historical data yet.
+
+    Args:
+        patch_name: label for the patch, e.g. "13.0"
+        map_pool: iterable of map names, e.g. {"Ascent", "Bind", ...}
+        overwrite: if False (default), raises an error if patch_name is
+            already registered, to avoid silently clobbering an existing
+            custom pool. Pass True to intentionally replace it.
+        df: optional. If provided, prints a note (does not block) if
+            patch_name already exists in the dataset's Patch column --
+            in that case you may actually want get_map_pool_for_patch(df,
+            patch_name), which derives the pool from real match data
+            instead of a manual entry.
+    """
+    patch_name = str(patch_name)
+    map_pool = set(map_pool)
+
+    if not map_pool:
+        raise ValueError("map_pool cannot be empty.")
+
+    if patch_name in CUSTOM_PATCHES and not overwrite:
+        raise ValueError(
+            f"Patch '{patch_name}' is already registered with pool "
+            f"{sorted(CUSTOM_PATCHES[patch_name])}. Pass overwrite=True to replace it."
+        )
+
+    if df is not None and patch_name in get_available_patches(df):
+        print(
+            f"NOTE: '{patch_name}' already exists in your dataset's Patch column. "
+            f"Registering a custom pool for it will take priority over the "
+            f"data-derived pool when using get_map_pool(). Use "
+            f"get_map_pool_for_patch() directly if you want the data-derived "
+            f"pool instead."
+        )
+
+    CUSTOM_PATCHES[patch_name] = map_pool
+    print(f"Registered patch '{patch_name}' with {len(map_pool)} maps: {sorted(map_pool)}")
+
+
+def remove_custom_patch(patch_name: str) -> None:
+    """Removes a manually registered patch."""
+    patch_name = str(patch_name)
+    if patch_name in CUSTOM_PATCHES:
+        del CUSTOM_PATCHES[patch_name]
+        print(f"Removed custom patch '{patch_name}'.")
+    else:
+        print(f"'{patch_name}' was not registered as a custom patch.")
+
+
+def list_custom_patches() -> dict:
+    """Returns all manually registered patches and their map pools."""
+    return dict(CUSTOM_PATCHES)
+
+
+def get_map_pool(df: pd.DataFrame, patch) -> set:
+    """Unified pool lookup: checks manually registered custom patches
+    first (see add_custom_patch), then falls back to the data-derived
+    pool via get_map_pool_for_patch(). Prefer this over calling
+    get_map_pool_for_patch() directly so custom patches are picked up
+    automatically."""
+    patch = str(patch)
+    if patch in CUSTOM_PATCHES:
+        return CUSTOM_PATCHES[patch]
+    return get_map_pool_for_patch(df, patch)
+
+
 if __name__ == "__main__":
-    # --- Example usage: full analysis using the entire historical map pool ---
+    # --- Example usage ---
     MERGED_FILE = "VCT2026-Merged.xlsx"
     df = load_data(MERGED_FILE)
-    results = analyze_matchup(df, "Eternal Fire", "Fnatic")
 
-    # --- Section 10: patch-aware, format-aware veto simulation ---
-    # Uses the map pool actually active on CURRENT_PATCH, and the format
-    # set in MATCH_FORMAT, rather than the full historical map pool.
-    CURRENT_PATCH = "12.05-12.08"   # set to whichever patch this match is played on
-    MATCH_FORMAT = "bo3"            # "bo3" or "bo5"
+    Team1 = "Eternal Fire"
+    Team2 = "Fnatic"
 
-    map_pool = get_map_pool_for_patch(df, CURRENT_PATCH)
-    print(f"\nMap pool for patch {CURRENT_PATCH} ({len(map_pool)} maps): {sorted(map_pool)}")
+    # Optional: register a custom patch not yet in the historical data
+    # (e.g. an upcoming Champs 2026 patch announced ahead of time).
+    CUSTOM_PATCH_NAME = "13.0"
+    CUSTOM_PATCH_POOL = {"Ascent", "Bind", "Corrode", "Fracture", "Haven", "Lotus", "Pearl"}
+    add_custom_patch(CUSTOM_PATCH_NAME, CUSTOM_PATCH_POOL, overwrite=True, df=df)
 
-    veto_a = veto_tendencies(df, results["team_a"])
-    veto_b = veto_tendencies(df, results["team_b"])
-
-    veto_sequence = simulate_veto(
-        veto_a, veto_b, results["team_a"], results["team_b"], map_pool, match_format=MATCH_FORMAT
+    # Pass `patch=` directly into the head-to-head call to control which
+    # map pool the veto simulation uses. Leave it out (or pass patch=None)
+    # to fall back to the full historical map pool across every patch.
+    results = analyze_matchup(
+        df, Team1, Team2,
+        patch=CUSTOM_PATCH_NAME,     # or e.g. "12.05-12.08" for a data-derived patch, or None for full history
+        match_format="bo3",          # "bo3" or "bo5"
     )
-    print(f"\nSimulated veto ({MATCH_FORMAT.upper()}): {results['team_a']} vs {results['team_b']}")
-    for step in veto_sequence:
-        print(f"  {step['step']:<20} -> {step['map']}")
